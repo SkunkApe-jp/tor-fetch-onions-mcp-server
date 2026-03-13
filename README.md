@@ -162,9 +162,49 @@ go run unified_scraper.go \
 # Start Ahmia discovery server
 python playwright_ahmia_mcp_server.py
 
-# Start HTML converter server
+# Start HTML converter server (Playwright)
+python playwright_html_to_md_mcp_server.py
+
+# Start HTML converter server (HTTP)
 python html_to_md_converter_mcp_server.py
 ```
+
+### MCP Configuration
+Add to your MCP client configuration (e.g., Claude Desktop):
+
+```json
+{
+  "mcpServers": {
+    "playwright-ahmia": {
+      "command": "python",
+      "args": ["c:/servers/playwright_ahmia_mcp_server.py"],
+      "env": {}
+    },
+    "playwright-html-converter": {
+      "command": "python", 
+      "args": ["c:/servers/playwright_html_to_md_mcp_server.py"],
+      "env": {}
+    },
+    "html-converter": {
+      "command": "python",
+      "args": ["c:/servers/html_to_md_converter_mcp_server.py"], 
+      "env": {}
+    }
+  }
+}
+```
+
+**Available MCP Tools:**
+
+**Ahmia Discovery Server:**
+- `discover_ahmia_links_js`: Search Ahmia with JavaScript rendering
+- `scrape_ahmia_top5`: Discover and scrape top 5 results
+- `health_check`: Verify Tor and Playwright connectivity
+
+**HTML Converter Servers:**
+- `fetch_and_convert_js`: Convert dynamic HTML to Markdown
+- `fetch_and_convert`: Convert static HTML to Markdown  
+- `health_check`: Verify system status
 
 ## Security Considerations
 
