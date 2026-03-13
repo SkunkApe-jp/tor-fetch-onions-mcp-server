@@ -19,21 +19,17 @@ from mcp.server.fastmcp import FastMCP
 mcp = FastMCP("html-to-md-converter-mcp-server")
 
 # Tor Browser-like user agent
-TOR_BROWSER_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0"
+TOR_BROWSER_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0"
 
 # Common HTTP headers that Tor Browser sends
 TOR_BROWSER_HEADERS = {
     "User-Agent": TOR_BROWSER_USER_AGENT,
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.5",
-    "Accept-Encoding": "gzip, deflate",
-    "Connection": "keep-alive",
-    "Upgrade-Insecure-Requests": "1",
     "Sec-Fetch-Dest": "document",
     "Sec-Fetch-Mode": "navigate",
     "Sec-Fetch-Site": "none",
-    "Sec-Fetch-User": "?1",
-    "TE": "trailers"
+    "Sec-Fetch-User": "?1"
 }
 
 
@@ -105,23 +101,67 @@ def random_delay(min_delay: float = 1.0, max_delay: float = 3.0):
 
 
 @mcp.tool()
-def convert_html_to_md(html_content: str, max_length: int = 10000) -> Dict[str, Any]:
+def convert_to_markdown(content: str, timeout: int = 30, max_length: int = 10000,
+                        add_delay: bool = False, min_delay: float = 1.0, max_delay: float = 3.0) -> Dict[str, Any]:
     """
-    Convert HTML content to Markdown format.
+    Convert HTML content or fetch a URL and convert to Markdown.
+    
+    Automatically detects whether the input is a URL (http/https) or raw HTML content.
+    - If URL: fetches through Tor network and converts to Markdown
+    - If HTML: converts directly to Markdown
     
     Args:
-        html_content (str): HTML content to convert
+        content (str): URL or HTML content to convert
+        timeout (int): Request timeout in seconds (default: 30)
         max_length (int): Maximum length of output Markdown (default: 10000)
+        add_delay (bool): Whether to add a random delay before fetching (default: False)
+        min_delay (float): Minimum delay in seconds (default: 1.0)
+        max_delay (float): Maximum delay in seconds (default: 3.0)
         
     Returns:
         Dict[str, Any]: Result containing success status, converted content, and metadata
     """
     try:
-        if not html_content or not isinstance(html_content, str):
+        if not content or not isinstance(content, str):
             return {
                 "success": False,
-                "error": "HTML content must be a non-empty string"
+                "error": "Content must be a non-empty string"
             }
+        
+        # Detect if content is a URL or HTML
+        is_url = content.strip().lower().startswith(('http://', 'https://'))
+        
+        html_content = ""
+        metadata = {"max_length": max_length}
+        
+        if is_url:
+            # Add random delay if requested
+            if add_delay:
+                random_delay(min_delay, max_delay)
+            
+            # Set up the SOCKS5 proxy for Tor expert bundle
+            proxies = {
+                'http': 'socks5h://127.0.0.1:9050',
+                'https': 'socks5h://127.0.0.1:9050'
+            }
+            
+            # Fetch the URL through Tor with Tor Browser-like headers
+            response = requests.get(
+                content, 
+                proxies=proxies, 
+                timeout=timeout,
+                headers=TOR_BROWSER_HEADERS
+            )
+            response.raise_for_status()
+            
+            html_content = response.text
+            metadata["url"] = content
+            metadata["status_code"] = response.status_code
+            metadata["source"] = "fetched_from_url"
+        else:
+            # Content is raw HTML
+            html_content = content
+            metadata["source"] = "direct_html"
         
         # Clean the HTML content
         cleaned_html = clean_html_content(html_content)
@@ -137,83 +177,21 @@ def convert_html_to_md(html_content: str, max_length: int = 10000) -> Dict[str, 
             "success": True,
             "content": markdown_content,
             "original_length": len(html_content),
-            "converted_length": len(markdown_content)
-        }
-        
-    except Exception as e:
-        return {
-            "success": False,
-            "error": f"Conversion failed: {str(e)}"
-        }
-
-
-@mcp.tool()
-def fetch_and_convert(url: str, timeout: int = 30, max_length: int = 10000,
-                   add_delay: bool = False, min_delay: float = 1.0, max_delay: float = 3.0) -> Dict[str, Any]:
-    """
-    Fetch a web page through the Tor network and convert it to Markdown.
-    
-    Args:
-        url (str): The URL to fetch through Tor
-        timeout (int): Request timeout in seconds (default: 30)
-        max_length (int): Maximum length of output Markdown (default: 10000)
-        add_delay (bool): Whether to add a random delay before making the request (default: False)
-        min_delay (float): Minimum delay in seconds (default: 1.0)
-        max_delay (float): Maximum delay in seconds (default: 3.0)
-        
-    Returns:
-        Dict[str, Any]: Result containing success status, converted content, and metadata
-    """
-    # Add random delay if requested
-    if add_delay:
-        random_delay(min_delay, max_delay)
-    
-    try:
-        # Set up the SOCKS5 proxy for Tor expert bundle
-        proxies = {
-            'http': 'socks5h://127.0.0.1:9050',
-            'https': 'socks5h://127.0.0.1:9050'
-        }
-        
-        # Make the request through Tor with Tor Browser-like headers
-        response = requests.get(
-            url, 
-            proxies=proxies, 
-            timeout=timeout,
-            headers=TOR_BROWSER_HEADERS
-        )
-        response.raise_for_status()
-        
-        # Clean the HTML content
-        cleaned_html = clean_html_content(response.text)
-        
-        # Convert HTML to Markdown
-        markdown_content = html_to_markdown(cleaned_html)
-        
-        # Limit content size
-        if len(markdown_content) > max_length:
-            markdown_content = markdown_content[:max_length] + "\n\n... (content truncated)"
-        
-        return {
-            "success": True,
-            "url": url,
-            "status_code": response.status_code,
-            "content": markdown_content,
-            "original_length": len(response.text),
-            "converted_length": len(markdown_content)
+            "converted_length": len(markdown_content),
+            **metadata
         }
         
     except requests.RequestException as e:
         return {
             "success": False,
-            "url": url,
-            "error": str(e)
+            "error": str(e),
+            "error_type": "request_error"
         }
     except Exception as e:
         return {
             "success": False,
-            "url": url,
-            "error": f"Conversion failed: {str(e)}"
+            "error": f"Conversion failed: {str(e)}",
+            "error_type": "conversion_error"
         }
 
 
